@@ -2,6 +2,13 @@ ARG BASE_IMAGE=ghcr.io/games-on-whales/gstreamer:1.26.7
 ########################################################
 FROM $BASE_IMAGE AS wolf-builder
 
+# ninja with no -j sizes itself from the HOST core count, which ignores any
+# cgroup CPU limit. On a 16-core node with a 4-CPU limit that is ~18 compilers
+# fighting over 4 CPUs: the build starves the buildkit daemon until its health
+# probe fails and the daemon is restarted mid-build. Cap it to the cores the
+# build is actually allowed to use.
+ARG NINJA_JOBS=4
+
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update -y && \
@@ -65,8 +72,8 @@ RUN --mount=type=cache,target=/cache/ccache \
     -DBUILD_FAKE_UDEV_CLI=ON \
     -DBUILD_TESTING=OFF \
     -G Ninja && \
-    ninja -C $CMAKE_BUILD_DIR wolf && \
-    ninja -C $CMAKE_BUILD_DIR fake-udev && \
+    ninja -C $CMAKE_BUILD_DIR -j${NINJA_JOBS} wolf && \
+    ninja -C $CMAKE_BUILD_DIR -j${NINJA_JOBS} fake-udev && \
     # We have to copy out the built executables because this will only be available inside the buildkit cache
     cp $CMAKE_BUILD_DIR/src/moonlight-server/wolf /wolf/wolf && \
     cp $CMAKE_BUILD_DIR/src/fake-udev/fake-udev /wolf/fake-udev
